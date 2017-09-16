@@ -7,7 +7,8 @@ const opn = require('opn')
 const proxy = require('http-proxy-middleware')
 
 
-const webdir =  path.join(__dirname, '../build')
+const __webdir =  path.join(__dirname, '../build')
+const __mockPath = 'mock'
 
 app.use(logger('dev'));
 
@@ -78,7 +79,7 @@ app.use(function (req, res, next) {
             req.url.indexOf('/font/iconfont/') === 0
         ) {
             try {
-                const filename = path.join(webdir, req.url)
+                const filename = path.join(__webdir, req.url)
                 if (fs.existsSync(filename)) {
                     const doc = fs.readFileSync(filename, 'utf8')
                     res.send(doc)
@@ -101,19 +102,62 @@ app.use('/', express.static('./build/public'))
 app.listen(3030, function () {
   console.log('Server listening on http://localhost:3030, Ctrl+C to stop')
   console.log('http://127.0.0.1:3030/config  里可以管理mock数据')
-  opn('http://localhost:3030/static/test.html')
+//   opn('http://localhost:3030/static/test.html')
+  opn('http://localhost:3030/api/com/ogoodo/cxb-test.do?a=b&c=123')
 })
 
-
-function getMockFilename(req) {
-    const filename = path.join(webdir, req.originalUrl)
-    return filename
+function getFullFilename(url) {
+    return path.join(__webdir, url)
 }
+// function getMockFilename(req) {
+//     let filename = path.join(__webdir, req.originalUrl)
+//     if(filename.indexOf('?') > 0) {
+//         filename = filename.substr(0, filename.indexOf('?'))
+//     }
+//     return filename
+// }
 function proxyInfo(req) {
-    const info = {
-        proxyUrl: `[${req.method}]${req.headers.host}${req.originalUrl}`,
-        filename: getMockFilename(req),
+    let url = req.originalUrl
+    if(url.indexOf('?') > 0) {
+        url = url.substr(0, url.indexOf('?'))
     }
+    console.log('================', url)
+
+    let fn0 = url
+
+    let fn2 = url.replace('/', '')
+    fn2 = fn2.replace(/\//g, '.')
+
+    let fn3 = url.replace('/mock/', '')
+    fn3 = fn3.replace(/\//g, '.')
+    fn3 = path.join(__mockPath, fn3)
+
+    let fn8 = url.substr(url.lastIndexOf('/') + 1, 999999)
+    fn8 = path.join(__mockPath, fn8)
+
+    const info = {
+        urlProxy: `[${req.method}]${req.headers.host}${req.originalUrl}`,
+        urlOriginal: req.originalUrl,
+        urlNoArgument: url,
+        // filename: getMockFilename(req),
+        files: [
+            getFullFilename(fn0),
+            getFullFilename(fn2),
+            getFullFilename(fn3),
+            getFullFilename(fn8),
+        ]
+    }
+    console.log('判断文件是否存在==={{')
+    for(let i = 0; i < info.files.length; i++) {
+        if (fs.existsSync(info.files[i])) {
+            info.file = info.files[i]
+            console.log('文件存在:', info.files[i])
+            break
+        } else {
+            console.log('文件不存在:', info.files[i])
+        }
+    }
+    console.log('判断文件是否存在===}}')
     return info
 }
 function sendProxyError(req, res, msg) {
@@ -133,26 +177,44 @@ function sendProxyError(req, res, msg) {
  */
 function sendProxyApi(req, res, next) {
     console.log(`进入app.use('/mack')分支(${req.method}): ${req.url}`)
-    const filename = getMockFilename(req)
-    if (fs.existsSync(filename)) {
-        try {
-            const doc = fs.readFileSync(filename, 'utf8')
-            // res.setHeader('Content-Type', 'application/json')
-            res.contentType('application/json')
-            // res.json({ file2:12 })
-            const json = JSON.parse(doc)
-            json.__proxyMsg__ = proxyInfo(req)
-            res.json(json)
-            console.log(`发送重定向mock文件: ${filename}`)
-            console.log(`发送重定向mock内容: ${doc}`)
-            return true;
-        } catch (err) {
-            console.error('\r\n\r\n error: server-dev.js', err)
-            sendProxyError(req, res, err)
-        }
-    } else {
+    const info = proxyInfo(req)
+    const filename = info.file; // getMockFilename(req)
+    if (!filename || !fs.existsSync(filename)) {
         console.log(`无mock文件: ${filename}`)
         sendProxyError(req, res, '本地mock文件没有')
+        return;
+    }
+    try {
+        console.log(`读取文件:${filename}`)
+
+        // delete require.cache[require.resolve(filename)];
+        // const jjj = require(filename);
+        // console.log('jjj:', jjj);
+        let doc = fs.readFileSync(filename, 'utf8')
+        // res.setHeader('Content-Type', 'application/json')
+        res.contentType('application/json')
+        // res.json({ file2:12 })
+        console.log(`内容转换为json`)
+        // doc = doc.replace(/\\n/g, "\\n")
+        // .replace(/\\'/g, "\\'")
+        // .replace(/\\"/g, '\\"')
+        // .replace(/\\&/g, "\\&")
+        // .replace(/\\r/g, "\\r")
+        // .replace(/\\t/g, "\\t")
+        // .replace(/\\b/g, "\\b")
+        // .replace(/\\f/g, "\\f");
+        // remove non-printable and other non-valid JSON chars
+        // doc = doc.replace(/[\u0000-\u0019]+/g,"");
+        const json = JSON.parse(doc)
+        // const json = eval(doc)
+        json.__proxyMsg__ = proxyInfo(req)
+        res.json(json)
+        console.log(`发送重定向mock文件: ${filename}`)
+        console.log(`发送重定向mock内容: ${doc}`)
+        return true;
+    } catch (err) {
+        console.error('\r\n\r\n error: server-dev.js', err)
+        sendProxyError(req, res, err)
     }
     return false;
     // res.end()
